@@ -17,6 +17,7 @@
 
   <!-- Firebase Compatibility SDKs -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
@@ -36,11 +37,11 @@
       measurementId: "G-EH2JKTP571"
     };
 
-    // Initialize Firebase
     if (!firebase.apps.length) {
       firebase.initializeApp(firebaseConfig);
     }
     const db = firebase.database();
+    const auth = firebase.auth();
 
     const { useState, useEffect } = React;
 
@@ -134,7 +135,21 @@
       </svg>
     );
 
+    const LogOut = () => (
+      <svg className="w-3.5 h-3.5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+        <polyline points="16 17 21 12 16 7"></polyline>
+        <line x1="21" y1="12" x2="9" y2="12"></line>
+      </svg>
+    );
+
     function OtterHoltBudgetLab() {
+      const [currentUser, setCurrentUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [authError, setAuthError] = useState('');
+
       const [activeTab, setActiveTab] = useState('calendar');
       const [filterOwner, setFilterOwner] = useState('All');
       const [syncStatus, setSyncStatus] = useState('Connecting to Firebase...');
@@ -147,8 +162,19 @@
       const [newPersonal, setNewPersonal] = useState({ owner: 'Matt', name: '', amount: '', dueDate: '', category: 'Personal' });
       const [newBookmark, setNewBookmark] = useState({ name: '', url: '' });
 
-      // Real-time listener across all active user sessions
+      // Handle Authentication State Changes
       useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((user) => {
+          setCurrentUser(user);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // Connect to Realtime Database after authentication
+      useEffect(() => {
+        if (!currentUser) return;
+
         const budgetRef = db.ref('budgetData');
         budgetRef.on('value', (snapshot) => {
           const data = snapshot.val();
@@ -172,11 +198,22 @@
             budgetRef.set({ jointExpenses: initialJoint, personalBills: initialPersonal, bookmarks: initialBookmarks });
           }
         }, () => {
-          setSyncStatus('Sync Error: Check Firebase Rules');
+          setSyncStatus('Sync Error: Access Denied');
         });
 
         return () => budgetRef.off();
-      }, []);
+      }, [currentUser]);
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        setAuthError('');
+        auth.signInWithEmailAndPassword(email, password)
+          .catch(err => setAuthError(err.message));
+      };
+
+      const handleLogout = () => {
+        auth.signOut();
+      };
 
       const saveToFirebase = (updatedJoint, updatedPersonal, updatedBookmarks) => {
         setSyncStatus('Saving changes...');
@@ -283,6 +320,68 @@
         return days;
       };
 
+      if (authLoading) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400 font-sans">
+            Checking access permissions...
+          </div>
+        );
+      }
+
+      if (!currentUser) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-950 p-4">
+            <div className="bg-slate-900 border border-slate-800 p-8 rounded-2xl w-full max-w-md shadow-2xl">
+              <div className="text-center mb-6">
+                <h1 className="text-2xl font-extrabold bg-gradient-to-r from-emerald-400 to-teal-200 bg-clip-text text-transparent">
+                  Otter Holt BudgetLab
+                </h1>
+                <p className="text-slate-400 text-xs mt-1">Authorized Access Only</p>
+              </div>
+
+              {authError && (
+                <div className="bg-rose-950/80 border border-rose-800 text-rose-300 text-xs p-3 rounded-lg mb-4">
+                  {authError}
+                </div>
+              )}
+
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Email Address</label>
+                  <input 
+                    type="email" 
+                    required 
+                    value={email} 
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" 
+                    placeholder="name@example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">Password</label>
+                  <input 
+                    type="password" 
+                    required 
+                    value={password} 
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" 
+                    placeholder="••••••••"
+                  />
+                </div>
+
+                <button 
+                  type="submit" 
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold py-2.5 rounded-lg transition text-sm mt-2"
+                >
+                  Log In to BudgetLab
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
       const calendarDays = getCalendarDays();
       const totalJoint = jointExpenses.reduce((sum, item) => sum + item.amount, 0);
       const totalPersonalMatt = personalBills.filter(b => b.owner === 'Matt').reduce((sum, b) => sum + b.amount, 0);
@@ -310,7 +409,7 @@
                 <select 
                   value={filterOwner} 
                   onChange={(e) => setFilterOwner(e.target.value)}
-                  className="bg-transparent text-slate-200 font-medium outline-none cursor-pointer"
+                  className="bg-transparent text-slate-200 font-medium outline-none cursor-pointer text-xs"
                 >
                   <option value="All" className="bg-slate-900">All Bills & Expenses</option>
                   <option value="Matt" className="bg-slate-900">Matt's Bills Only</option>
@@ -326,6 +425,10 @@
                 <Upload /> Import
                 <input type="file" accept=".json" onChange={handleImportJSON} className="hidden" />
               </label>
+
+              <button onClick={handleLogout} className="flex items-center gap-1.5 bg-rose-950/60 hover:bg-rose-900/60 border border-rose-800 text-rose-300 text-xs px-3 py-2 rounded-lg transition">
+                <LogOut /> Log Out
+              </button>
             </div>
           </header>
 
